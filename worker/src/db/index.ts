@@ -15,4 +15,5 @@ export * from "./inbox-permissions.schema";
 export * from "./push-subscriptions.schema";
 export * from "./app-settings.schema";
 export * from "./suppressions.schema";
+export * from "./email-events.schema";
 export * from "./schema";

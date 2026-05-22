@@ -19,6 +19,7 @@ import { parseSendBody, sendParseErrorResponse } from "../lib/multipart-send";
 import { attachments } from "../db/attachments.schema";
 import { filterSuppressed } from "../lib/suppression";
 import { buildListUnsubscribeHeaders } from "../lib/list-unsubscribe";
+import { applyTracking } from "../lib/tracking";
 
 /**
  * Fetch the set of "internal" domains (domains owned by our
@@ -156,12 +157,17 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
 
-  // Pre-generate the sent_emails id so the unsubscribe token can reference
-  // this specific message. Re-used below at insert time.
+  // Pre-generate the sent_emails id so the unsubscribe + tracking
+  // tokens can reference this specific message. Re-used below at
+  // insert time.
   const id = nanoid();
   const listUnsubHeaders = await buildListUnsubscribeHeaders(c.env, {
     email: to,
     sentEmailId: id,
+  });
+  const trackedHtml = await applyTracking(c.env, bodyHtml, {
+    sentEmailId: id,
+    recipient: to,
   });
 
   const result = await sender.send({
@@ -169,7 +175,7 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
     to,
     ...(cc && cc.length > 0 ? { cc: cc.map(formatCc) } : {}),
     subject,
-    html: bodyHtml,
+    html: trackedHtml,
     text: bodyText,
     headers: { "Message-ID": messageId, ...listUnsubHeaders },
     ...(files.length > 0

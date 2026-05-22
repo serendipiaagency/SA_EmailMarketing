@@ -26,6 +26,7 @@ import { sequencesRouter } from "./routers/sequences-router";
 import { suppressionsRouter } from "./routers/suppressions-router";
 import { unsubscribeRouter } from "./routers/unsubscribe-router";
 import { webhooksRouter } from "./routers/webhooks-router";
+import { trackingRouter } from "./routers/tracking-router";
 import { handleScheduled, handleQueueBatch } from "./lib/sequence-processor";
 import type { SequenceEmailMessage } from "./lib/sequence-processor";
 import { notificationsRouter } from "./routers/notifications-router";
@@ -118,6 +119,9 @@ app.route("/u", unsubscribeRouter);
 // Outbound-provider webhooks (bounces / complaints). Each route verifies
 // the provider's HMAC signature, so they sit outside the /api/* auth tree.
 app.route("/webhooks", webhooksRouter);
+
+// Open + click tracking. Public, HMAC-signed tokens — see tracking-token.ts.
+app.route("/t", trackingRouter);
 
 // BetterAuth handler
 app.all("/api/auth/*", (c) => {

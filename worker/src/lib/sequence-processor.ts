@@ -14,6 +14,7 @@ import { formatFromAddress } from "./format-from-address";
 import { generateMessageId } from "./message-id";
 import { isSuppressed } from "./suppression";
 import { buildListUnsubscribeHeaders } from "./list-unsubscribe";
+import { applyTracking } from "./tracking";
 
 export interface SequenceEmailMessage {
   sequenceEmailId: string;
@@ -214,17 +215,22 @@ async function processSequenceEmail(
 
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
-  // Pre-generate sentId so the unsubscribe token can reference this message.
+  // Pre-generate sentId so the unsubscribe + tracking tokens can
+  // reference this message.
   const sentId = nanoid();
   const listUnsubHeaders = await buildListUnsubscribeHeaders(env, {
     email: person.email,
     sentEmailId: sentId,
   });
+  const trackedHtml = await applyTracking(env, renderedHtml, {
+    sentEmailId: sentId,
+    recipient: person.email,
+  });
   const result = await sender.send({
     from: formattedFrom,
     to: person.email,
     subject: renderedSubject,
-    html: renderedHtml,
+    html: trackedHtml,
     headers: { "Message-ID": messageId, ...listUnsubHeaders },
   });
 

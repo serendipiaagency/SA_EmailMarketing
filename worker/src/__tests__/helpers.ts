@@ -75,6 +75,10 @@ export async function applyMigrations() {
     `CREATE TABLE IF NOT EXISTS suppressions (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, reason TEXT NOT NULL, source TEXT, sent_email_id TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS suppressions_reason_idx ON suppressions(reason)`,
     `CREATE INDEX IF NOT EXISTS suppressions_created_at_idx ON suppressions(created_at)`,
+    `CREATE TABLE IF NOT EXISTS email_events (id TEXT PRIMARY KEY, sent_email_id TEXT NOT NULL, recipient TEXT NOT NULL, kind TEXT NOT NULL, url TEXT, user_agent TEXT, ip_prefix TEXT, event_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS email_events_sent_at_idx ON email_events(sent_email_id, event_at)`,
+    `CREATE INDEX IF NOT EXISTS email_events_kind_at_idx ON email_events(kind, event_at)`,
+    `CREATE INDEX IF NOT EXISTS email_events_recipient_at_idx ON email_events(recipient, event_at)`,
   ];
 
   for (const sql of statements) {
@@ -261,6 +265,7 @@ export function buildSendForm(
 export async function cleanDb() {
   const db = env.DB;
   await db.exec(`
+    DELETE FROM email_events;
     DELETE FROM suppressions;
     DELETE FROM push_subscriptions;
     DELETE FROM inbox_permissions;
