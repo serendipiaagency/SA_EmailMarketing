@@ -25,6 +25,7 @@ import { apiKeysRouter } from "./routers/api-keys-router";
 import { sequencesRouter } from "./routers/sequences-router";
 import { suppressionsRouter } from "./routers/suppressions-router";
 import { unsubscribeRouter } from "./routers/unsubscribe-router";
+import { webhooksRouter } from "./routers/webhooks-router";
 import { handleScheduled, handleQueueBatch } from "./lib/sequence-processor";
 import type { SequenceEmailMessage } from "./lib/sequence-processor";
 import { notificationsRouter } from "./routers/notifications-router";
@@ -113,6 +114,10 @@ app.post("/api/auth/sign-in/email", async (c, next) => {
 // Public unsubscribe endpoints — must be registered before the /api/*
 // auth middleware so they remain accessible without credentials.
 app.route("/u", unsubscribeRouter);
+
+// Outbound-provider webhooks (bounces / complaints). Each route verifies
+// the provider's HMAC signature, so they sit outside the /api/* auth tree.
+app.route("/webhooks", webhooksRouter);
 
 // BetterAuth handler
 app.all("/api/auth/*", (c) => {

@@ -30,6 +30,10 @@ export default defineConfig({
           VAPID_PUBLIC_KEY: "test-vapid-public",
           VAPID_SUBJECT: "mailto:test@example.com",
           UNSUBSCRIBE_TOKEN_SECRET: "test-unsubscribe-secret",
+          // A real Svix secret would look like `whsec_<base64>`. The
+          // verifier strips the `whsec_` prefix and base64-decodes the
+          // rest, so we feed it a deterministic test secret here.
+          RESEND_WEBHOOK_SECRET: "whsec_dGVzdC1yZXNlbmQtd2ViaG9vay1zZWNyZXQ=",
         },
       },
     }),

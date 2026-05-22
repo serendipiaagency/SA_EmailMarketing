@@ -20,6 +20,8 @@ declare namespace Cloudflare {
 		VAPID_PRIVATE_KEY?: string;
 		/** Secret: set via `wrangler secret put UNSUBSCRIBE_TOKEN_SECRET`. HMAC key for signing public unsubscribe links. Not emitted by `wrangler types`; added manually. */
 		UNSUBSCRIBE_TOKEN_SECRET?: string;
+		/** Secret: set via `wrangler secret put RESEND_WEBHOOK_SECRET`. Svix-format `whsec_…` value from the Resend dashboard. Only required when using Resend as the outbound provider. Not emitted by `wrangler types`; added manually. */
+		RESEND_WEBHOOK_SECRET?: string;
 		NOTIFICATIONS_HUB: DurableObjectNamespace<import("./worker/src/index").NotificationsHub>;
 	}
 }
