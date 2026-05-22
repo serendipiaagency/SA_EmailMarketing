@@ -12,6 +12,7 @@ import { sentEmails } from "../db/sent-emails.schema";
 import { interpolate } from "./interpolate";
 import { formatFromAddress } from "./format-from-address";
 import { generateMessageId } from "./message-id";
+import { isSuppressed } from "./suppression";
 
 export interface SequenceEmailMessage {
   sequenceEmailId: string;
@@ -161,6 +162,41 @@ async function processSequenceEmail(
   }
 
   const person = personRows[0];
+
+  // Suppression gate: a person added to the suppression list (bounce,
+  // complaint, unsubscribe) after enrollment must not receive any more
+  // sequence emails. Cancel this email + remaining ones in the enrollment.
+  if (await isSuppressed(db, person.email)) {
+    await db
+      .update(sequenceEmails)
+      .set({ status: "cancelled" })
+      .where(eq(sequenceEmails.id, sequenceEmailId));
+    await db
+      .update(sequenceEnrollments)
+      .set({ status: "cancelled", cancelledAt: now })
+      .where(eq(sequenceEnrollments.id, enrollment.id));
+    // Cancel any remaining pending/queued emails in this enrollment so
+    // they don't fire after the gate.
+    await db
+      .update(sequenceEmails)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(sequenceEmails.enrollmentId, enrollment.id),
+          eq(sequenceEmails.status, "pending"),
+        ),
+      );
+    await db
+      .update(sequenceEmails)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(sequenceEmails.enrollmentId, enrollment.id),
+          eq(sequenceEmails.status, "queued"),
+        ),
+      );
+    return;
+  }
 
   // Merge variables: person auto-vars + enrollment custom vars (custom wins)
   const customVars: Record<string, string> = JSON.parse(enrollment.variables);

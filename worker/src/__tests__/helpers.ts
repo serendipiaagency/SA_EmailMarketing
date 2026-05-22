@@ -72,6 +72,9 @@ export async function applyMigrations() {
     `CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_idx ON push_subscriptions(endpoint)`,
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL, updated_by TEXT)`,
     `CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions(user_id)`,
+    `CREATE TABLE IF NOT EXISTS suppressions (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, reason TEXT NOT NULL, source TEXT, sent_email_id TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS suppressions_reason_idx ON suppressions(reason)`,
+    `CREATE INDEX IF NOT EXISTS suppressions_created_at_idx ON suppressions(created_at)`,
   ];
 
   for (const sql of statements) {
@@ -258,6 +261,7 @@ export function buildSendForm(
 export async function cleanDb() {
   const db = env.DB;
   await db.exec(`
+    DELETE FROM suppressions;
     DELETE FROM push_subscriptions;
     DELETE FROM inbox_permissions;
     DELETE FROM sender_identities;

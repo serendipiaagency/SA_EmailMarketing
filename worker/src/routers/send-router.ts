@@ -17,6 +17,7 @@ import { generateMessageId } from "../lib/message-id";
 import { computeConversationId, externalsOnly } from "../lib/conversation-id";
 import { parseSendBody, sendParseErrorResponse } from "../lib/multipart-send";
 import { attachments } from "../db/attachments.schema";
+import { filterSuppressed } from "../lib/suppression";
 
 /**
  * Fetch the set of "internal" domains (domains owned by our
@@ -135,6 +136,21 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   const allowed = c.get("allowedInboxes")!;
   assertInboxAllowed(allowed, fromAddress);
   const now = Math.floor(Date.now() / 1000);
+
+  // Compliance + deliverability gate: refuse to send to any address on
+  // the active suppression list. Returns the offending recipients so the
+  // caller can surface them in the UI.
+  const suppressionTargets = [to, ...(cc?.map((c) => c.email) ?? [])];
+  const suppressedHere = await filterSuppressed(db, suppressionTargets);
+  if (suppressedHere.size > 0) {
+    return c.json(
+      {
+        error: "suppressed_recipient",
+        suppressed: Array.from(suppressedHere),
+      },
+      403,
+    );
+  }
 
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
@@ -343,6 +359,24 @@ sendRouter.openapi(replyEmailRoute, async (c) => {
     origSubject = orig.subject ?? null;
     origInReplyToMessageId = orig.messageId ?? null;
     toAddress = orig.toAddress.toLowerCase();
+  }
+
+  // Suppression check covers replies too — once a recipient lands on the
+  // suppression list (bounce, complaint, unsubscribe) further sends are
+  // blocked regardless of channel.
+  const suppressionTargetsReply = [
+    toAddress,
+    ...(cc?.map((c) => c.email) ?? []),
+  ];
+  const suppressedReply = await filterSuppressed(db, suppressionTargetsReply);
+  if (suppressedReply.size > 0) {
+    return c.json(
+      {
+        error: "suppressed_recipient",
+        suppressed: Array.from(suppressedReply),
+      },
+      403,
+    );
   }
 
   // Determine subject and body
