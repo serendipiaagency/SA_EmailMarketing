@@ -23,6 +23,8 @@ import { invitesRouter } from "./routers/invites-router";
 import { userRouter } from "./routers/user-router";
 import { apiKeysRouter } from "./routers/api-keys-router";
 import { sequencesRouter } from "./routers/sequences-router";
+import { suppressionsRouter } from "./routers/suppressions-router";
+import { unsubscribeRouter } from "./routers/unsubscribe-router";
 import { handleScheduled, handleQueueBatch } from "./lib/sequence-processor";
 import type { SequenceEmailMessage } from "./lib/sequence-processor";
 import { notificationsRouter } from "./routers/notifications-router";
@@ -107,6 +109,10 @@ app.post("/api/auth/sign-in/email", async (c, next) => {
   }
   return next();
 });
+
+// Public unsubscribe endpoints — must be registered before the /api/*
+// auth middleware so they remain accessible without credentials.
+app.route("/u", unsubscribeRouter);
 
 // BetterAuth handler
 app.all("/api/auth/*", (c) => {
@@ -205,6 +211,7 @@ app.route("/api/notifications", notificationsRouter);
 app.use("/api/admin/*", requireAdmin);
 app.route("/api/admin", adminRouter);
 app.route("/api/admin/inboxes", adminInboxesRouter);
+app.route("/api/admin/suppressions", suppressionsRouter);
 
 // Health check (no auth)
 app.get("/api/health", (c) => c.json({ status: "ok" }));

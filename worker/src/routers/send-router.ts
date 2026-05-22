@@ -18,6 +18,7 @@ import { computeConversationId, externalsOnly } from "../lib/conversation-id";
 import { parseSendBody, sendParseErrorResponse } from "../lib/multipart-send";
 import { attachments } from "../db/attachments.schema";
 import { filterSuppressed } from "../lib/suppression";
+import { buildListUnsubscribeHeaders } from "../lib/list-unsubscribe";
 
 /**
  * Fetch the set of "internal" domains (domains owned by our
@@ -155,6 +156,14 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
 
+  // Pre-generate the sent_emails id so the unsubscribe token can reference
+  // this specific message. Re-used below at insert time.
+  const id = nanoid();
+  const listUnsubHeaders = await buildListUnsubscribeHeaders(c.env, {
+    email: to,
+    sentEmailId: id,
+  });
+
   const result = await sender.send({
     from: formattedFrom,
     to,
@@ -162,7 +171,7 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
     subject,
     html: bodyHtml,
     text: bodyText,
-    headers: { "Message-ID": messageId },
+    headers: { "Message-ID": messageId, ...listUnsubHeaders },
     ...(files.length > 0
       ? {
           attachments: files.map((f) => ({
@@ -214,7 +223,6 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   );
   const conversationId = await computeConversationId(fromAddress, externals);
 
-  const id = nanoid();
   await db.insert(sentEmails).values({
     id,
     personId,

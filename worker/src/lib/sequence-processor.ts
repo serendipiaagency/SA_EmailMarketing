@@ -13,6 +13,7 @@ import { interpolate } from "./interpolate";
 import { formatFromAddress } from "./format-from-address";
 import { generateMessageId } from "./message-id";
 import { isSuppressed } from "./suppression";
+import { buildListUnsubscribeHeaders } from "./list-unsubscribe";
 
 export interface SequenceEmailMessage {
   sequenceEmailId: string;
@@ -76,7 +77,7 @@ export async function handleQueueBatch(
 
   for (const msg of batch.messages) {
     try {
-      await processSequenceEmail(db, sender, msg.body.sequenceEmailId);
+      await processSequenceEmail(db, sender, env, msg.body.sequenceEmailId);
       msg.ack();
     } catch (err) {
       console.error(
@@ -91,6 +92,7 @@ export async function handleQueueBatch(
 async function processSequenceEmail(
   db: ReturnType<typeof drizzle>,
   sender: EmailSender,
+  env: CloudflareBindings,
   sequenceEmailId: string,
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
@@ -212,16 +214,21 @@ async function processSequenceEmail(
 
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
+  // Pre-generate sentId so the unsubscribe token can reference this message.
+  const sentId = nanoid();
+  const listUnsubHeaders = await buildListUnsubscribeHeaders(env, {
+    email: person.email,
+    sentEmailId: sentId,
+  });
   const result = await sender.send({
     from: formattedFrom,
     to: person.email,
     subject: renderedSubject,
     html: renderedHtml,
-    headers: { "Message-ID": messageId },
+    headers: { "Message-ID": messageId, ...listUnsubHeaders },
   });
 
   // Store sent email record
-  const sentId = nanoid();
   await db.insert(sentEmails).values({
     id: sentId,
     personId: person.id,
