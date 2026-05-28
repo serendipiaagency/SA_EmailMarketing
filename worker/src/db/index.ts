@@ -16,4 +16,5 @@ export * from "./push-subscriptions.schema";
 export * from "./app-settings.schema";
 export * from "./suppressions.schema";
 export * from "./email-events.schema";
+export * from "./people-tags.schema";
 export * from "./schema";

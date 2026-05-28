@@ -15,6 +15,7 @@ import { pushSubscriptions } from "./push-subscriptions.schema";
 import { appSettings } from "./app-settings.schema";
 import { suppressions } from "./suppressions.schema";
 import { emailEvents } from "./email-events.schema";
+import { peopleTags } from "./people-tags.schema";
 
 export const schema = {
   ...authSchema,
@@ -34,4 +35,5 @@ export const schema = {
   appSettings,
   suppressions,
   emailEvents,
+  peopleTags,
 } as const;

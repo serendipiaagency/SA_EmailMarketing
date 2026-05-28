@@ -79,6 +79,8 @@ export async function applyMigrations() {
     `CREATE INDEX IF NOT EXISTS email_events_sent_at_idx ON email_events(sent_email_id, event_at)`,
     `CREATE INDEX IF NOT EXISTS email_events_kind_at_idx ON email_events(kind, event_at)`,
     `CREATE INDEX IF NOT EXISTS email_events_recipient_at_idx ON email_events(recipient, event_at)`,
+    `CREATE TABLE IF NOT EXISTS people_tags (person_id TEXT NOT NULL, tag TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (person_id, tag))`,
+    `CREATE INDEX IF NOT EXISTS people_tags_tag_idx ON people_tags(tag)`,
   ];
 
   for (const sql of statements) {
@@ -265,6 +267,7 @@ export function buildSendForm(
 export async function cleanDb() {
   const db = env.DB;
   await db.exec(`
+    DELETE FROM people_tags;
     DELETE FROM email_events;
     DELETE FROM suppressions;
     DELETE FROM push_subscriptions;
