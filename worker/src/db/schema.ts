@@ -16,6 +16,7 @@ import { appSettings } from "./app-settings.schema";
 import { suppressions } from "./suppressions.schema";
 import { emailEvents } from "./email-events.schema";
 import { peopleTags } from "./people-tags.schema";
+import { campaigns } from "./campaigns.schema";
 
 export const schema = {
   ...authSchema,
@@ -36,4 +37,5 @@ export const schema = {
   suppressions,
   emailEvents,
   peopleTags,
+  campaigns,
 } as const;

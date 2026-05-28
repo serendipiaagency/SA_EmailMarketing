@@ -17,4 +17,5 @@ export * from "./app-settings.schema";
 export * from "./suppressions.schema";
 export * from "./email-events.schema";
 export * from "./people-tags.schema";
+export * from "./campaigns.schema";
 export * from "./schema";

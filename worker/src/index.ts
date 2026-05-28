@@ -23,6 +23,7 @@ import { invitesRouter } from "./routers/invites-router";
 import { userRouter } from "./routers/user-router";
 import { apiKeysRouter } from "./routers/api-keys-router";
 import { sequencesRouter } from "./routers/sequences-router";
+import { campaignsRouter } from "./routers/campaigns-router";
 import { suppressionsRouter } from "./routers/suppressions-router";
 import { unsubscribeRouter } from "./routers/unsubscribe-router";
 import { webhooksRouter } from "./routers/webhooks-router";
@@ -213,6 +214,7 @@ app.route("/api/user", userRouter);
 app.route("/api/api-keys", apiKeysRouter);
 app.route("/api/invites", invitesRouter);
 app.route("/api/sequences", sequencesRouter);
+app.route("/api/campaigns", campaignsRouter);
 app.route("/api/notifications", notificationsRouter);
 
 // Admin routes (require admin role)
