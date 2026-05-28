@@ -7,6 +7,7 @@ import {
   getDb,
 } from "./helpers";
 import { addSuppression } from "../lib/suppression";
+import { suppressions } from "../db/suppressions.schema";
 
 describe("admin suppressions router", () => {
   let apiKey: string;
@@ -23,9 +24,29 @@ describe("admin suppressions router", () => {
   describe("GET /api/admin/suppressions", () => {
     it("returns paginated rows newest-first", async () => {
       const db = getDb();
-      await addSuppression(db, { email: "a@x.com", reason: "manual" });
-      await new Promise((r) => setTimeout(r, 1100));
-      await addSuppression(db, { email: "b@x.com", reason: "complaint" });
+      // Explicit createdAt for deterministic ordering (avoids flaky
+      // wall-clock sleeps at second resolution).
+      const base = 1_700_000_000;
+      await db.insert(suppressions).values({
+        id: "sup-a",
+        email: "a@x.com",
+        reason: "manual",
+        source: null,
+        sentEmailId: null,
+        metadata: null,
+        createdAt: base,
+        updatedAt: base,
+      });
+      await db.insert(suppressions).values({
+        id: "sup-b",
+        email: "b@x.com",
+        reason: "complaint",
+        source: null,
+        sentEmailId: null,
+        metadata: null,
+        createdAt: base + 10,
+        updatedAt: base + 10,
+      });
 
       const res = await authFetch("/api/admin/suppressions", { apiKey });
       expect(res.status).toBe(200);

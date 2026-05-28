@@ -5,6 +5,23 @@ description: Interactive setup wizard for deploying your own saasmail instance t
 
 # saasmail Onboarding Wizard
 
+> **⚠️ Serendipia Mail fork — read first.** This instance runs on the
+> Cloudflare **Workers Free plan** and uses **Resend** for outbound. The
+> following deviations OVERRIDE the steps below wherever they conflict:
+>
+> - **Skip the Workers Paid checkpoint.** No paid plan is needed — Queues
+>   were removed; sequence emails dispatch inline via the cron trigger.
+> - **Skip `wrangler queues create`** (Step 3) — there is no queue.
+> - **Outbound provider is Resend (not Cloudflare Email Sending).** Treat
+>   "Option B — Resend" as the default; set `RESEND_API_KEY` and verify the
+>   send-from domain in the Resend dashboard. Skip the Email Service steps.
+> - **Set `UNSUBSCRIBE_TOKEN_SECRET`** (`openssl rand -hex 32`) as a secret —
+>   required for marketing sends (unsubscribe + tracking tokens).
+> - The Durable Object uses the SQLite backend (`new_sqlite_classes`), which
+>   the Free plan supports.
+>
+> See CLAUDE.md ("Serendipia Mail fork") for the authoritative list.
+
 Guide the user through deploying a production saasmail instance to **their Cloudflare account**. This wizard is deployment-only — it does not set up local development. Every step targets the user's live Cloudflare environment.
 
 ## Before You Start
@@ -18,7 +35,7 @@ Set expectations up front, so the user knows what they're committing to:
 - **~30–40 minutes** total; most of the wait is DNS propagation, not typing.
 - **Two decisions**: which domains will be used, and which outbound email provider (Cloudflare Email Sending or Resend).
 - **Three manual Cloudflare-dashboard steps** (Email Routing per inbound domain, Email Service per send-from domain, and checking the deployed worker).
-- **Cost**: a Cloudflare **Workers Paid plan (~$5/mo)** is required. saasmail uses Queues, which aren't on the free plan. Email Routing is free; Cloudflare Email Sending is usage-based.
+- **Cost (Serendipia fork)**: runs on the Cloudflare **Workers Free plan** — **$0** on the Cloudflare side. Email Routing is free; outbound uses **Resend** (its own free tier covers low volume). _(Upstream saasmail requires a ~$5/mo Workers Paid plan for Queues; this fork removed that dependency.)_
 
 Tell the user all of this before touching anything, so they can back out cheaply.
 
@@ -38,9 +55,14 @@ Ask: "Are the domain's nameservers pointing to Cloudflare (the domain is an acti
 
 - **No** → Stop. Instruct them to open the Cloudflare dashboard → **Add a Site**, then switch nameservers at their registrar to the ones Cloudflare provides. Propagation can take up to a few hours. Both Email Routing and `custom_domain` worker routes require the zone to live on Cloudflare.
 
-### Checkpoint 3 — Workers Paid plan?
+### Checkpoint 3 — Workers Paid plan? (SKIP for Serendipia fork)
 
-Ask: "Is your Cloudflare account on the **Workers Paid** plan (~$5/month)?"
+**Serendipia Mail fork: skip this checkpoint entirely.** The Free plan is
+sufficient — Queues were removed, sequences dispatch inline via cron, and the
+Durable Object uses the SQLite backend (Free-plan compatible). Do NOT ask the
+user to upgrade.
+
+_(Upstream only:)_ Ask: "Is your Cloudflare account on the **Workers Paid** plan (~$5/month)?"
 
 - **No** → Stop. Send them to https://dash.cloudflare.com/?to=/:account/workers/plans to upgrade, and wait for them to come back. Without it, `wrangler queues create` will fail and the deploy will not succeed.
 
@@ -60,7 +82,7 @@ If wrangler is missing: `npm install -g wrangler`.
 
 Before creating a single resource, restate to the user what they've confirmed:
 
-> You've told me: you own `<domain>`, it's on Cloudflare, your account is on Workers Paid, and tooling is installed. I'm about to create a D1 database, an R2 bucket, and a Queue in your Cloudflare account, and deploy a worker. Ready?
+> You've told me: you own `<domain>`, it's on Cloudflare, and tooling is installed. I'm about to create a D1 database and an R2 bucket in your Cloudflare account, then deploy a worker (Free plan — no Queue). Ready?
 
 Wait for an explicit yes. This is the last low-cost checkpoint.
 
@@ -110,12 +132,13 @@ yarn install
 ```bash
 wrangler d1 create saasmail-db
 wrangler r2 bucket create saasmail-attachments
-wrangler queues create saasmail-sequence-emails
+# Serendipia fork: NO queue — sequences dispatch inline via cron. Do not run:
+#   wrangler queues create saasmail-sequence-emails   (upstream only)
 ```
 
 **Capture the `database_id`** printed by `wrangler d1 create` — you'll paste it into `wrangler.jsonc` next.
 
-If any resource already exists, note it and move on. If the queue command fails with a plan error, Checkpoint 3 was not actually satisfied — stop and have the user upgrade.
+If any resource already exists, note it and move on.
 
 ### Step 4: Configure `wrangler.jsonc`
 
@@ -291,11 +314,10 @@ Show the user exactly what was set up, substituting their real values:
 
 - Worker deployed at `<BASE_URL>`
 - Inbound: Cloudflare Email Routing → worker, on `<inbound domain(s)>`
-- Outbound: `<Cloudflare Email Sending | Resend>`, from `<send-from domain(s)>`
+- Outbound: Resend (from `<send-from domain(s)>`)
 - D1 database `saasmail-db` (binding `DB`)
 - R2 bucket `saasmail-attachments` (binding `R2`)
-- Queue `saasmail-sequence-emails` (binding `EMAIL_QUEUE`)
-- Hourly cron for sequence email delivery
+- Hourly cron for inline sequence email delivery (no Queue on this fork)
 
 ## Common Issues
 

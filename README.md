@@ -43,6 +43,12 @@ If `RESEND_API_KEY` is set it takes precedence; otherwise the `EMAIL` binding is
 
 ## How much does it cost?
 
+> **Serendipia Mail fork:** this instance runs on the **Cloudflare Workers Free
+> plan** — Queues are removed and sequences are dispatched inline by cron (see
+> CLAUDE.md). Outbound goes through **Resend** (its own free tier covers low
+> volume). So the Cloudflare side is **$0**; you only pay Resend if you exceed
+> their free tier. The upstream pricing below applies to vanilla saasmail.
+
 **$5/month** for the Cloudflare Workers Paid plan, which includes **3,000 emails per month** of Cloudflare Email Sending at no extra cost. That's it.
 
 No VM to rent. No sprawling cloud console to learn. Just a domain, a Cloudflare account, and the Workers Paid plan.
@@ -84,22 +90,22 @@ Issue scoped API keys for programmatic access to send email, manage templates, e
 
 ## Architecture
 
-| Layer               | Technology                                                                |
-| ------------------- | ------------------------------------------------------------------------- |
-| **Receive email**   | Cloudflare Email Workers                                                  |
-| **Send email**      | Cloudflare Email Sending or Resend                                        |
-| **Runtime**         | Cloudflare Workers + Hono                                                 |
-| **API**             | Zod + `@hono/zod-openapi` (OpenAPI 3.1)                                   |
-| **Database**        | Cloudflare D1 (SQLite)                                                    |
-| **File storage**    | Cloudflare R2 (attachments)                                               |
-| **Queue**           | Cloudflare Queues (sequence processing)                                   |
-| **Realtime + Push** | Durable Object (`NotificationsHub`, one per user) — WebSockets + Web Push |
-| **Web Push**        | VAPID + `aes128gcm` payload encryption (RFC 8291), implemented in-worker  |
-| **Service Worker**  | `public/sw.js` — receives push events, renders OS notifications           |
-| **Cron**            | Hourly trigger for sequence email scheduling                              |
-| **Frontend**        | React + Tailwind CSS + TipTap editor                                      |
-| **ORM**             | Drizzle                                                                   |
-| **Auth**            | BetterAuth with passkey support                                           |
+| Layer               | Technology                                                                 |
+| ------------------- | -------------------------------------------------------------------------- |
+| **Receive email**   | Cloudflare Email Workers                                                   |
+| **Send email**      | Cloudflare Email Sending or Resend                                         |
+| **Runtime**         | Cloudflare Workers + Hono                                                  |
+| **API**             | Zod + `@hono/zod-openapi` (OpenAPI 3.1)                                    |
+| **Database**        | Cloudflare D1 (SQLite)                                                     |
+| **File storage**    | Cloudflare R2 (attachments)                                                |
+| **Sequencing**      | Inline cron dispatch (Serendipia fork; upstream uses Cloudflare Queues)    |
+| **Realtime + Push** | Durable Object (`NotificationsHub`, SQLite-backed) — WebSockets + Web Push |
+| **Web Push**        | VAPID + `aes128gcm` payload encryption (RFC 8291), implemented in-worker   |
+| **Service Worker**  | `public/sw.js` — receives push events, renders OS notifications            |
+| **Cron**            | Hourly trigger for sequence email scheduling                               |
+| **Frontend**        | React + Tailwind CSS + TipTap editor                                       |
+| **ORM**             | Drizzle                                                                    |
+| **Auth**            | BetterAuth with passkey support                                            |
 
 ### Architecture Diagram
 
@@ -124,7 +130,13 @@ flowchart LR
     DO --> D1
 ```
 
-The `NotificationsHub` Durable Object is keyed per user (`idFromName(userId)`). On inbound mail the worker fans out to each recipient's hub, which pushes WebSocket frames to live tabs and sends encrypted Web Push to registered devices. The queue carries scheduled sequence emails — the cron trigger enqueues due steps and a queue consumer in the same worker sends them.
+The `NotificationsHub` Durable Object is keyed per user (`idFromName(userId)`). On inbound mail the worker fans out to each recipient's hub, which pushes WebSocket frames to live tabs and sends encrypted Web Push to registered devices.
+
+> **Serendipia Mail fork:** there is no Cloudflare Queue. The hourly cron
+> trigger discovers due sequence steps and sends them **inline** (and the first
+> step sends at enrollment time). See `worker/src/lib/sequence-processor.ts`
+> and the fork notes in CLAUDE.md. The `Queue` box below applies to upstream
+> saasmail only.
 
 ## Quick Start
 

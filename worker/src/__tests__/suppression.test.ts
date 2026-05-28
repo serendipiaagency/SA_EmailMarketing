@@ -165,10 +165,26 @@ describe("suppression helpers", () => {
   describe("listSuppressions", () => {
     it("paginates and sorts by createdAt desc", async () => {
       const db = getDb();
-      for (const e of ["a@x.com", "b@x.com", "c@x.com"]) {
-        await addSuppression(db, { email: e, reason: "manual" });
-        // small wait to keep ordering deterministic at second-resolution
-        await new Promise((r) => setTimeout(r, 1100));
+      // Insert with explicit, well-separated createdAt so ordering is
+      // deterministic (addSuppression stamps second-resolution times;
+      // wall-clock sleeps to separate them are flaky).
+      const base = 1_700_000_000;
+      const rows = [
+        { email: "a@x.com", createdAt: base },
+        { email: "b@x.com", createdAt: base + 10 },
+        { email: "c@x.com", createdAt: base + 20 },
+      ];
+      for (const r of rows) {
+        await db.insert(suppressions).values({
+          id: `sup-${r.email}`,
+          email: r.email,
+          reason: "manual",
+          source: null,
+          sentEmailId: null,
+          metadata: null,
+          createdAt: r.createdAt,
+          updatedAt: r.createdAt,
+        });
       }
       const all = await listSuppressions(db, { limit: 10 });
       expect(all.map((r) => r.email)).toEqual([
@@ -179,7 +195,7 @@ describe("suppression helpers", () => {
       const page2 = await listSuppressions(db, { limit: 2, offset: 2 });
       expect(page2.length).toBe(1);
       expect(page2[0].email).toBe("a@x.com");
-    }, 10_000);
+    });
 
     it("filters by reason", async () => {
       const db = getDb();
