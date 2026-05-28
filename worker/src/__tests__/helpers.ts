@@ -83,6 +83,8 @@ export async function applyMigrations() {
     `CREATE INDEX IF NOT EXISTS people_tags_tag_idx ON people_tags(tag)`,
     `CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, name TEXT NOT NULL, template_slug TEXT NOT NULL, from_address TEXT NOT NULL, tag TEXT, sequence_id TEXT NOT NULL, total_recipients INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS campaigns_created_at_idx ON campaigns(created_at)`,
+    `CREATE TABLE IF NOT EXISTS consents (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, source TEXT NOT NULL, basis TEXT NOT NULL, note TEXT, ip_prefix TEXT, consented_at INTEGER NOT NULL, revoked_at INTEGER)`,
+    `CREATE INDEX IF NOT EXISTS consents_person_idx ON consents(person_id, consented_at)`,
   ];
 
   for (const sql of statements) {
@@ -269,6 +271,7 @@ export function buildSendForm(
 export async function cleanDb() {
   const db = env.DB;
   await db.exec(`
+    DELETE FROM consents;
     DELETE FROM campaigns;
     DELETE FROM people_tags;
     DELETE FROM email_events;

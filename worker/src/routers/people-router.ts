@@ -16,6 +16,16 @@ import {
   getTagsForPerson,
   listAllTags,
 } from "../lib/people-tags";
+import {
+  recordConsent,
+  revokeConsent,
+  getConsentStatus,
+  CONSENT_SOURCES,
+  CONSENT_BASES,
+  type ConsentSource,
+  type ConsentBasis,
+} from "../lib/consent";
+import { truncateIp } from "../lib/tracking";
 import type { Variables } from "../variables";
 import type { AllowedInboxes } from "../lib/inbox-permissions";
 
@@ -844,6 +854,112 @@ peopleRouter.openapi(removePersonTagRoute, async (c) => {
   }
   await removeTag(db, id, tag);
   return c.json({ tags: await getTagsForPerson(db, id) }, 200);
+});
+
+// --- Per-person consent ledger (GDPR / LOPDGDD) ---
+const ConsentStatusSchema = z.object({
+  hasActiveConsent: z.boolean(),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      personId: z.string(),
+      source: z.string(),
+      basis: z.string(),
+      note: z.string().nullable(),
+      ipPrefix: z.string().nullable(),
+      consentedAt: z.number(),
+      revokedAt: z.number().nullable(),
+    }),
+  ),
+});
+
+const getConsentRoute = createRoute({
+  method: "get",
+  path: "/{id}/consent",
+  tags: ["People"],
+  description:
+    "Get a contact's consent status and full consent history (GDPR/LOPDGDD audit trail).",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    ...json200Response(ConsentStatusSchema, "Consent status + history"),
+  },
+});
+
+peopleRouter.openapi(getConsentRoute, async (c) => {
+  const db = c.get("db");
+  const { id } = c.req.valid("param");
+  if (!(await personExists(db, id))) {
+    return c.json({ error: "Person not found" }, 404);
+  }
+  return c.json(await getConsentStatus(db, id), 200);
+});
+
+const recordConsentRoute = createRoute({
+  method: "post",
+  path: "/{id}/consent",
+  tags: ["People"],
+  description:
+    "Record a consent event for a contact. Captures source, legal basis, an optional note, and the truncated request IP.",
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            source: z.enum(CONSENT_SOURCES as unknown as [string, ...string[]]),
+            basis: z.enum(CONSENT_BASES as unknown as [string, ...string[]]),
+            note: z.string().max(500).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    ...json201Response(ConsentStatusSchema, "Consent recorded; returns status"),
+  },
+});
+
+peopleRouter.openapi(recordConsentRoute, async (c) => {
+  const db = c.get("db");
+  const { id } = c.req.valid("param");
+  const { source, basis, note } = c.req.valid("json");
+  if (!(await personExists(db, id))) {
+    return c.json({ error: "Person not found" }, 404);
+  }
+  const ipPrefix = truncateIp(c.req.header("cf-connecting-ip") ?? null);
+  await recordConsent(db, {
+    personId: id,
+    source: source as ConsentSource,
+    basis: basis as ConsentBasis,
+    note: note ?? null,
+    ipPrefix,
+  });
+  return c.json(await getConsentStatus(db, id), 201);
+});
+
+const revokeConsentRoute = createRoute({
+  method: "delete",
+  path: "/{id}/consent",
+  tags: ["People"],
+  description:
+    "Withdraw consent for a contact (stamps revokedAt on all active records). Does not delete history.",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    ...json200Response(
+      z.object({ revoked: z.number(), status: ConsentStatusSchema }),
+      "Consent withdrawn",
+    ),
+  },
+});
+
+peopleRouter.openapi(revokeConsentRoute, async (c) => {
+  const db = c.get("db");
+  const { id } = c.req.valid("param");
+  if (!(await personExists(db, id))) {
+    return c.json({ error: "Person not found" }, 404);
+  }
+  const revoked = await revokeConsent(db, id);
+  return c.json({ revoked, status: await getConsentStatus(db, id) }, 200);
 });
 
 const deletePersonRoute = createRoute({

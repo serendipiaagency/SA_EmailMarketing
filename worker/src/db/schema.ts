@@ -17,6 +17,7 @@ import { suppressions } from "./suppressions.schema";
 import { emailEvents } from "./email-events.schema";
 import { peopleTags } from "./people-tags.schema";
 import { campaigns } from "./campaigns.schema";
+import { consents } from "./consents.schema";
 
 export const schema = {
   ...authSchema,
@@ -38,4 +39,5 @@ export const schema = {
   emailEvents,
   peopleTags,
   campaigns,
+  consents,
 } as const;
