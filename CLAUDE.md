@@ -37,6 +37,21 @@ override upstream where they conflict.
 - `email_events` table + `/t/o/:token` (open pixel) and `/t/c/:token`
   (click redirect); per-message stats at `GET /api/stats/sent-email/:id`.
 
+### Segmentation, campaigns & consent added in this fork
+
+- `people_tags` table + `worker/src/lib/people-tags.ts` — lowercased
+  contact tags. Endpoints under `/api/people/{id}/tags` and
+  `GET /api/people/tags` (tag → count).
+- `campaigns` table + `worker/src/routers/campaigns-router.ts` — a
+  broadcast to a tag segment, backed by a one-step sequence so it reuses
+  the suppression gate + tracking + List-Unsubscribe. `POST/GET
+/api/campaigns`, `GET /api/campaigns/:id` (aggregated stats). Delivery
+  is cron-throttled (no inline send for bulk).
+- `consents` table + `worker/src/lib/consent.ts` — GDPR/LOPDGDD consent
+  ledger (source, legal basis, truncated IP, revoke keeps history).
+  Endpoints under `/api/people/{id}/consent`. Currently record-keeping
+  only — campaign sends are NOT yet gated on `hasActiveConsent`.
+
 ### Extra secrets (beyond upstream)
 
 - `UNSUBSCRIBE_TOKEN_SECRET` — **required** for marketing sends. HMAC key for
