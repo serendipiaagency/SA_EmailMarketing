@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
+import { env } from "cloudflare:workers";
 import {
   applyMigrations,
   cleanDb,
@@ -381,33 +382,42 @@ describe("sequences router", () => {
 
   describe("DELETE /api/sequences/enrollments/:enrollmentId", () => {
     it("cancels an active enrollment", async () => {
-      const seq = await createSequenceWithTemplates();
-      await createTestPerson({ id: "s1", email: "a@test.com" });
+      // Demo mode so enrollment doesn't send the first email inline (this
+      // test exercises cancellation logic, not delivery). Without it the
+      // first step would reach a terminal sent/failed state at enroll time
+      // and DELETE — which only cancels pending/queued — couldn't flip it.
+      (env as Record<string, unknown>).DEMO_MODE = "1";
+      try {
+        const seq = await createSequenceWithTemplates();
+        await createTestPerson({ id: "s1", email: "a@test.com" });
 
-      const enrollRes = await authFetch(`/api/sequences/${seq.id}/enroll`, {
-        apiKey,
-        method: "POST",
-        body: JSON.stringify({
-          personId: "s1",
-          fromAddress: "me@saasmail.test",
-        }),
-      });
-      const enrollData = await enrollRes.json();
+        const enrollRes = await authFetch(`/api/sequences/${seq.id}/enroll`, {
+          apiKey,
+          method: "POST",
+          body: JSON.stringify({
+            personId: "s1",
+            fromAddress: "me@saasmail.test",
+          }),
+        });
+        const enrollData = await enrollRes.json();
 
-      const res = await authFetch(
-        `/api/sequences/enrollments/${enrollData.enrollment.id}`,
-        { apiKey, method: "DELETE" },
-      );
-      expect(res.status).toBe(200);
+        const res = await authFetch(
+          `/api/sequences/enrollments/${enrollData.enrollment.id}`,
+          { apiKey, method: "DELETE" },
+        );
+        expect(res.status).toBe(200);
 
-      // Verify emails were cancelled
-      const db = getDb();
-      const emailRows = await db
-        .select()
-        .from(sequenceEmails)
-        .where(eq(sequenceEmails.enrollmentId, enrollData.enrollment.id));
-      for (const row of emailRows) {
-        expect(row.status).toBe("cancelled");
+        // Verify emails were cancelled
+        const db = getDb();
+        const emailRows = await db
+          .select()
+          .from(sequenceEmails)
+          .where(eq(sequenceEmails.enrollmentId, enrollData.enrollment.id));
+        for (const row of emailRows) {
+          expect(row.status).toBe("cancelled");
+        }
+      } finally {
+        (env as Record<string, unknown>).DEMO_MODE = "0";
       }
     });
 

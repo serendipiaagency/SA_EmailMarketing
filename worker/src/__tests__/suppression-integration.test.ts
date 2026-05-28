@@ -17,8 +17,7 @@ import { sentEmails } from "../db/sent-emails.schema";
 import { sequenceEnrollments } from "../db/sequence-enrollments.schema";
 import { sequenceEmails } from "../db/sequence-emails.schema";
 import { sequences } from "../db/sequences.schema";
-import { handleQueueBatch } from "../lib/sequence-processor";
-import type { SequenceEmailMessage } from "../lib/sequence-processor";
+import { handleScheduled } from "../lib/sequence-processor";
 
 describe("suppression — send-router integration", () => {
   let apiKey: string;
@@ -181,7 +180,7 @@ describe("suppression — sequence-processor integration", () => {
         stepOrder: 1,
         templateSlug: "welcome",
         scheduledAt: now,
-        status: "queued",
+        status: "pending",
       },
       {
         id: "se-2",
@@ -198,20 +197,9 @@ describe("suppression — sequence-processor integration", () => {
       reason: "complaint",
     });
 
-    const ackMessages: SequenceEmailMessage[] = [];
-    const batch = {
-      messages: [
-        {
-          body: { sequenceEmailId: "se-1" },
-          ack: () => ackMessages.push({ sequenceEmailId: "se-1" }),
-          retry: () => {
-            throw new Error("should not retry");
-          },
-        },
-      ],
-    } as unknown as MessageBatch<SequenceEmailMessage>;
-
-    await handleQueueBatch(batch, env as unknown as CloudflareBindings);
+    // Cron-driven inline processing (no queue): handleScheduled claims the
+    // due email, processSequenceEmail sees the suppression and cancels.
+    await handleScheduled(env as unknown as CloudflareBindings);
 
     const se1 = await db
       .select()
@@ -243,7 +231,5 @@ describe("suppression — sequence-processor integration", () => {
         ),
       );
     expect(sent).toHaveLength(0);
-
-    expect(ackMessages).toHaveLength(1);
   });
 });

@@ -11,11 +11,43 @@ import {
 import { sequences } from "../db/sequences.schema";
 import { sequenceEnrollments } from "../db/sequence-enrollments.schema";
 import { sequenceEmails } from "../db/sequence-emails.schema";
-import { sentEmails } from "../db/sent-emails.schema";
 import { eq } from "drizzle-orm";
 import { handleScheduled } from "../lib/sequence-processor";
+import { addSuppression } from "../lib/suppression";
 
-describe("sequence processor - handleScheduled", () => {
+const bindings = env as unknown as CloudflareBindings;
+
+// Insert a sequence + active enrollment, returning the enrollment id.
+async function seedEnrollment(opts: {
+  personId: string;
+  email: string;
+  templateSlug: string;
+}): Promise<string> {
+  const db = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  await createTestPerson({ id: opts.personId, email: opts.email });
+  await db.insert(sequences).values({
+    id: "seq-1",
+    name: "Test",
+    steps: JSON.stringify([
+      { order: 1, templateSlug: opts.templateSlug, delayHours: 0 },
+    ]),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(sequenceEnrollments).values({
+    id: "enr-1",
+    sequenceId: "seq-1",
+    personId: opts.personId,
+    status: "active",
+    variables: "{}",
+    fromAddress: "test@test.com",
+    enrolledAt: now,
+  });
+  return "enr-1";
+}
+
+describe("sequence processor — handleScheduled (inline, no queue)", () => {
   beforeAll(async () => {
     await applyMigrations();
   });
@@ -25,34 +57,16 @@ describe("sequence processor - handleScheduled", () => {
     await createTestUser();
   });
 
-  it("queues due pending emails and pushes to queue", async () => {
+  it("processes a due pending email inline (missing template -> failed)", async () => {
     const db = getDb();
     const now = Math.floor(Date.now() / 1000);
-
-    await createTestPerson({ id: "s1", email: "a@test.com" });
-    await createTestTemplate({ slug: "welcome" });
-
-    await db.insert(sequences).values({
-      id: "seq-1",
-      name: "Test",
-      steps: JSON.stringify([
-        { order: 1, templateSlug: "welcome", delayHours: 0 },
-      ]),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await db.insert(sequenceEnrollments).values({
-      id: "enr-1",
-      sequenceId: "seq-1",
+    // Note: NO template created — processSequenceEmail marks the row failed
+    // before reaching the sender, which is deterministic in tests.
+    await seedEnrollment({
       personId: "s1",
-      status: "active",
-      variables: "{}",
-      fromAddress: "test@test.com",
-      enrolledAt: now,
+      email: "a@test.com",
+      templateSlug: "welcome",
     });
-
-    // Due email (scheduledAt in the past)
     await db.insert(sequenceEmails).values({
       id: "se-1",
       enrollmentId: "enr-1",
@@ -62,45 +76,61 @@ describe("sequence processor - handleScheduled", () => {
       status: "pending",
     });
 
-    await handleScheduled(env as unknown as CloudflareBindings);
+    await handleScheduled(bindings);
 
-    // Verify status changed to queued
-    const emailRow = await db
+    const [row] = await db
       .select()
       .from(sequenceEmails)
-      .where(eq(sequenceEmails.id, "se-1"))
-      .limit(1);
-    expect(emailRow[0].status).toBe("queued");
+      .where(eq(sequenceEmails.id, "se-1"));
+    // Was claimed + processed inline; not left pending/queued.
+    expect(row.status).toBe("failed");
   });
 
-  it("does not queue future pending emails", async () => {
+  it("cancels a due email when the recipient is suppressed", async () => {
     const db = getDb();
     const now = Math.floor(Date.now() / 1000);
-
-    await createTestPerson({ id: "s1", email: "a@test.com" });
-    await createTestTemplate({ slug: "welcome" });
-
-    await db.insert(sequences).values({
-      id: "seq-1",
-      name: "Test",
-      steps: JSON.stringify([
-        { order: 1, templateSlug: "welcome", delayHours: 0 },
-      ]),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await db.insert(sequenceEnrollments).values({
-      id: "enr-1",
-      sequenceId: "seq-1",
+    await seedEnrollment({
       personId: "s1",
-      status: "active",
-      variables: "{}",
-      fromAddress: "test@test.com",
-      enrolledAt: now,
+      email: "blocked@test.com",
+      templateSlug: "welcome",
+    });
+    await createTestTemplate({ slug: "welcome" });
+    await addSuppression(db, {
+      email: "blocked@test.com",
+      reason: "complaint",
+    });
+    await db.insert(sequenceEmails).values({
+      id: "se-1",
+      enrollmentId: "enr-1",
+      stepOrder: 1,
+      templateSlug: "welcome",
+      scheduledAt: now - 100,
+      status: "pending",
     });
 
-    // Future email
+    await handleScheduled(bindings);
+
+    const [row] = await db
+      .select()
+      .from(sequenceEmails)
+      .where(eq(sequenceEmails.id, "se-1"));
+    expect(row.status).toBe("cancelled");
+
+    const [enr] = await db
+      .select()
+      .from(sequenceEnrollments)
+      .where(eq(sequenceEnrollments.id, "enr-1"));
+    expect(enr.status).toBe("cancelled");
+  });
+
+  it("does not process future-scheduled pending emails", async () => {
+    const db = getDb();
+    const now = Math.floor(Date.now() / 1000);
+    await seedEnrollment({
+      personId: "s1",
+      email: "a@test.com",
+      templateSlug: "welcome",
+    });
     await db.insert(sequenceEmails).values({
       id: "se-1",
       enrollmentId: "enr-1",
@@ -110,18 +140,16 @@ describe("sequence processor - handleScheduled", () => {
       status: "pending",
     });
 
-    await handleScheduled(env as unknown as CloudflareBindings);
+    await handleScheduled(bindings);
 
-    const emailRow = await db
+    const [row] = await db
       .select()
       .from(sequenceEmails)
-      .where(eq(sequenceEmails.id, "se-1"))
-      .limit(1);
-    expect(emailRow[0].status).toBe("pending");
+      .where(eq(sequenceEmails.id, "se-1"));
+    expect(row.status).toBe("pending");
   });
 
-  it("does nothing when no pending emails", async () => {
-    // Should not throw
-    await handleScheduled(env as unknown as CloudflareBindings);
+  it("does nothing when there are no due pending emails", async () => {
+    await handleScheduled(bindings);
   });
 });

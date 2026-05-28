@@ -27,8 +27,7 @@ import { suppressionsRouter } from "./routers/suppressions-router";
 import { unsubscribeRouter } from "./routers/unsubscribe-router";
 import { webhooksRouter } from "./routers/webhooks-router";
 import { trackingRouter } from "./routers/tracking-router";
-import { handleScheduled, handleQueueBatch } from "./lib/sequence-processor";
-import type { SequenceEmailMessage } from "./lib/sequence-processor";
+import { handleScheduled } from "./lib/sequence-processor";
 import { notificationsRouter } from "./routers/notifications-router";
 export { NotificationsHub } from "./do/notifications";
 import type { Variables } from "./variables";
@@ -264,11 +263,5 @@ export default {
     ctx: ExecutionContext,
   ) {
     ctx.waitUntil(handleScheduled(env));
-  },
-  async queue(
-    batch: MessageBatch<SequenceEmailMessage>,
-    env: CloudflareBindings,
-  ) {
-    await handleQueueBatch(batch, env);
   },
 };

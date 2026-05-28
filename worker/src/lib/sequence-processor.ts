@@ -16,24 +16,31 @@ import { isSuppressed } from "./suppression";
 import { buildListUnsubscribeHeaders } from "./list-unsubscribe";
 import { applyTracking } from "./tracking";
 
-export interface SequenceEmailMessage {
-  sequenceEmailId: string;
-}
+// Safety cap: how many due emails a single cron run will process inline.
+// Without Cloudflare Queues we process synchronously inside the scheduled
+// handler; this bounds wall-clock + CPU per run. Anything above the cap
+// is picked up on the next cron tick. Raise the cron frequency in
+// wrangler.jsonc if you need higher throughput.
+const MAX_EMAILS_PER_RUN = 100;
 
 /**
- * Cron handler: find due pending emails and push them onto the queue.
+ * Cron handler: find due pending emails and send them inline.
+ *
+ * This deployment runs without Cloudflare Queues (Workers Free plan), so
+ * the cron both discovers and dispatches. Each row is "claimed" by
+ * flipping it to "queued" before processing so overlapping cron runs
+ * don't double-send; on an unexpected throw it's reset to "pending" so
+ * the next run retries (this replaces the queue's automatic retry).
  */
 export async function handleScheduled(env: CloudflareBindings): Promise<void> {
-  // Demo deploys have no EMAIL_QUEUE binding and no cron trigger, but guard
-  // here too so this can't crash if invoked manually.
   if (isDemoMode(env)) {
     console.log("[demo] Skipping scheduled sequence dispatch");
     return;
   }
   const db = drizzle(env.DB, { schema });
+  const sender = createEmailSender(env);
   const now = Math.floor(Date.now() / 1000);
 
-  // Find pending emails that are due
   const dueEmails = await db
     .select({ id: sequenceEmails.id })
     .from(sequenceEmails)
@@ -42,55 +49,44 @@ export async function handleScheduled(env: CloudflareBindings): Promise<void> {
         eq(sequenceEmails.status, "pending"),
         lte(sequenceEmails.scheduledAt, now),
       ),
-    );
+    )
+    .limit(MAX_EMAILS_PER_RUN);
 
   if (dueEmails.length === 0) return;
 
-  // Mark as queued first (prevents re-pickup on crash), then push to queue
+  let processed = 0;
   for (const email of dueEmails) {
+    // Claim the row before sending so an overlapping cron run skips it
+    // (processSequenceEmail bails on anything that isn't "queued").
     await db
       .update(sequenceEmails)
       .set({ status: "queued" })
       .where(eq(sequenceEmails.id, email.id));
 
-    const message: SequenceEmailMessage = { sequenceEmailId: email.id };
-    await env.EMAIL_QUEUE.send(message);
-  }
-
-  console.log(`Queued ${dueEmails.length} sequence emails`);
-}
-
-/**
- * Queue consumer: process a batch of sequence email messages.
- */
-export async function handleQueueBatch(
-  batch: MessageBatch<SequenceEmailMessage>,
-  env: CloudflareBindings,
-): Promise<void> {
-  if (isDemoMode(env)) {
-    // No queue binding exists in demo, so this should never fire — ack
-    // anything that somehow lands here so it doesn't infinitely retry.
-    for (const msg of batch.messages) msg.ack();
-    return;
-  }
-  const db = drizzle(env.DB, { schema });
-  const sender = createEmailSender(env);
-
-  for (const msg of batch.messages) {
     try {
-      await processSequenceEmail(db, sender, env, msg.body.sequenceEmailId);
-      msg.ack();
+      await processSequenceEmail(db, sender, env, email.id);
+      processed++;
     } catch (err) {
-      console.error(
-        `Failed to process sequence email ${msg.body.sequenceEmailId}:`,
-        err,
-      );
-      msg.retry();
+      console.error(`Failed to process sequence email ${email.id}:`, err);
+      // Reset to pending so the next cron run retries. Guard on the
+      // claimed status so we don't clobber a terminal state the
+      // processor may have already written.
+      await db
+        .update(sequenceEmails)
+        .set({ status: "pending" })
+        .where(
+          and(
+            eq(sequenceEmails.id, email.id),
+            eq(sequenceEmails.status, "queued"),
+          ),
+        );
     }
   }
+
+  console.log(`Processed ${processed}/${dueEmails.length} sequence emails`);
 }
 
-async function processSequenceEmail(
+export async function processSequenceEmail(
   db: ReturnType<typeof drizzle>,
   sender: EmailSender,
   env: CloudflareBindings,

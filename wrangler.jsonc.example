@@ -44,21 +44,9 @@
   "observability": {
     "enabled": true
   },
-  "queues": {
-    "producers": [
-      {
-        "binding": "EMAIL_QUEUE",
-        "queue": "saasmail-sequence-emails"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "saasmail-sequence-emails",
-        "max_batch_size": 10,
-        "max_retries": 3
-      }
-    ]
-  },
+  // No Cloudflare Queues: this deployment targets the Workers Free plan,
+  // where Queues are unavailable. Sequence emails are dispatched inline by
+  // the cron trigger below (see worker/src/lib/sequence-processor.ts).
   "durable_objects": {
     "bindings": [
       {
@@ -67,12 +55,17 @@
       }
     ]
   },
+  // SQLite-backed Durable Objects are available on the Workers Free plan
+  // (key-value backed ones are not). NotificationsHub only uses the
+  // WebSocket hibernation API + D1, so the SQLite backend is a drop-in.
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["NotificationsHub"]
+      "new_sqlite_classes": ["NotificationsHub"]
     }
   ],
+  // Sequence delivery cadence. Free plan supports cron triggers. Lower the
+  // interval (e.g. "*/5 * * * *") for faster sequence throughput.
   "triggers": {
     "crons": ["0 * * * *"]
   },
