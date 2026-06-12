@@ -23,8 +23,12 @@ import { invitesRouter } from "./routers/invites-router";
 import { userRouter } from "./routers/user-router";
 import { apiKeysRouter } from "./routers/api-keys-router";
 import { sequencesRouter } from "./routers/sequences-router";
-import { handleScheduled, handleQueueBatch } from "./lib/sequence-processor";
-import type { SequenceEmailMessage } from "./lib/sequence-processor";
+import { campaignsRouter } from "./routers/campaigns-router";
+import { suppressionsRouter } from "./routers/suppressions-router";
+import { unsubscribeRouter } from "./routers/unsubscribe-router";
+import { webhooksRouter } from "./routers/webhooks-router";
+import { trackingRouter } from "./routers/tracking-router";
+import { handleScheduled } from "./lib/sequence-processor";
 import { notificationsRouter } from "./routers/notifications-router";
 export { NotificationsHub } from "./do/notifications";
 import type { Variables } from "./variables";
@@ -107,6 +111,17 @@ app.post("/api/auth/sign-in/email", async (c, next) => {
   }
   return next();
 });
+
+// Public unsubscribe endpoints — must be registered before the /api/*
+// auth middleware so they remain accessible without credentials.
+app.route("/u", unsubscribeRouter);
+
+// Outbound-provider webhooks (bounces / complaints). Each route verifies
+// the provider's HMAC signature, so they sit outside the /api/* auth tree.
+app.route("/webhooks", webhooksRouter);
+
+// Open + click tracking. Public, HMAC-signed tokens — see tracking-token.ts.
+app.route("/t", trackingRouter);
 
 // BetterAuth handler
 app.all("/api/auth/*", (c) => {
@@ -199,12 +214,14 @@ app.route("/api/user", userRouter);
 app.route("/api/api-keys", apiKeysRouter);
 app.route("/api/invites", invitesRouter);
 app.route("/api/sequences", sequencesRouter);
+app.route("/api/campaigns", campaignsRouter);
 app.route("/api/notifications", notificationsRouter);
 
 // Admin routes (require admin role)
 app.use("/api/admin/*", requireAdmin);
 app.route("/api/admin", adminRouter);
 app.route("/api/admin/inboxes", adminInboxesRouter);
+app.route("/api/admin/suppressions", suppressionsRouter);
 
 // Health check (no auth)
 app.get("/api/health", (c) => c.json({ status: "ok" }));
@@ -248,11 +265,5 @@ export default {
     ctx: ExecutionContext,
   ) {
     ctx.waitUntil(handleScheduled(env));
-  },
-  async queue(
-    batch: MessageBatch<SequenceEmailMessage>,
-    env: CloudflareBindings,
-  ) {
-    await handleQueueBatch(batch, env);
   },
 };

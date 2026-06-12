@@ -13,6 +13,11 @@ import { senderIdentities } from "./sender-identities.schema";
 import { inboxPermissions } from "./inbox-permissions.schema";
 import { pushSubscriptions } from "./push-subscriptions.schema";
 import { appSettings } from "./app-settings.schema";
+import { suppressions } from "./suppressions.schema";
+import { emailEvents } from "./email-events.schema";
+import { peopleTags } from "./people-tags.schema";
+import { campaigns } from "./campaigns.schema";
+import { consents } from "./consents.schema";
 
 export const schema = {
   ...authSchema,
@@ -30,4 +35,9 @@ export const schema = {
   inboxPermissions,
   pushSubscriptions,
   appSettings,
+  suppressions,
+  emailEvents,
+  peopleTags,
+  campaigns,
+  consents,
 } as const;

@@ -11,6 +11,8 @@ import { users } from "./db/auth.schema";
 import { parseEmail } from "./lib/email-parser";
 import { computeConversationId, externalsOnly } from "./lib/conversation-id";
 import { cancelSequencesForPerson } from "./lib/cancel-sequence";
+import { detectBounce } from "./lib/detect-bounce";
+import { addSuppression } from "./lib/suppression";
 import {
   MAX_ADMIN_FANOUT,
   computeFanoutTargets,
@@ -28,6 +30,30 @@ export async function handleEmail(
   const db = drizzle(env.DB, { schema, logger: true });
   const parsed = await parseEmail(message);
   const now = Math.floor(Date.now() / 1000);
+
+  // Detect bounces (DSN / Mailer-Daemon) and route them to the suppression
+  // list instead of storing them as regular emails. Without this any
+  // hard-bounce reply pollutes the inbox AND we keep mailing dead
+  // addresses, both of which wreck deliverability.
+  const bounce = detectBounce(parsed);
+  if (bounce) {
+    if (bounce.recipient) {
+      await addSuppression(db, {
+        email: bounce.recipient,
+        reason: bounce.reason,
+        source: "inbound-dsn",
+        metadata: bounce.metadata,
+      });
+      console.log(
+        `Bounce detected: ${bounce.recipient} → suppression (${bounce.reason}, status=${bounce.status ?? "?"})`,
+      );
+    } else {
+      console.warn(
+        `Bounce detected but failed to extract recipient. from=${parsed.from.address} subject=${parsed.subject}`,
+      );
+    }
+    return;
+  }
 
   // Canonicalize inbox addresses to lowercase before storage so casing
   // variants of the same recipient don't fork into separate group-row

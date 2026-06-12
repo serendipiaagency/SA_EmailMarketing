@@ -72,6 +72,19 @@ export async function applyMigrations() {
     `CREATE UNIQUE INDEX IF NOT EXISTS push_subscriptions_endpoint_idx ON push_subscriptions(endpoint)`,
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL, updated_by TEXT)`,
     `CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions(user_id)`,
+    `CREATE TABLE IF NOT EXISTS suppressions (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, reason TEXT NOT NULL, source TEXT, sent_email_id TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS suppressions_reason_idx ON suppressions(reason)`,
+    `CREATE INDEX IF NOT EXISTS suppressions_created_at_idx ON suppressions(created_at)`,
+    `CREATE TABLE IF NOT EXISTS email_events (id TEXT PRIMARY KEY, sent_email_id TEXT NOT NULL, recipient TEXT NOT NULL, kind TEXT NOT NULL, url TEXT, user_agent TEXT, ip_prefix TEXT, event_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS email_events_sent_at_idx ON email_events(sent_email_id, event_at)`,
+    `CREATE INDEX IF NOT EXISTS email_events_kind_at_idx ON email_events(kind, event_at)`,
+    `CREATE INDEX IF NOT EXISTS email_events_recipient_at_idx ON email_events(recipient, event_at)`,
+    `CREATE TABLE IF NOT EXISTS people_tags (person_id TEXT NOT NULL, tag TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (person_id, tag))`,
+    `CREATE INDEX IF NOT EXISTS people_tags_tag_idx ON people_tags(tag)`,
+    `CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, name TEXT NOT NULL, template_slug TEXT NOT NULL, from_address TEXT NOT NULL, tag TEXT, sequence_id TEXT NOT NULL, total_recipients INTEGER NOT NULL, created_at INTEGER NOT NULL)`,
+    `CREATE INDEX IF NOT EXISTS campaigns_created_at_idx ON campaigns(created_at)`,
+    `CREATE TABLE IF NOT EXISTS consents (id TEXT PRIMARY KEY, person_id TEXT NOT NULL, source TEXT NOT NULL, basis TEXT NOT NULL, note TEXT, ip_prefix TEXT, consented_at INTEGER NOT NULL, revoked_at INTEGER)`,
+    `CREATE INDEX IF NOT EXISTS consents_person_idx ON consents(person_id, consented_at)`,
   ];
 
   for (const sql of statements) {
@@ -258,6 +271,11 @@ export function buildSendForm(
 export async function cleanDb() {
   const db = env.DB;
   await db.exec(`
+    DELETE FROM consents;
+    DELETE FROM campaigns;
+    DELETE FROM people_tags;
+    DELETE FROM email_events;
+    DELETE FROM suppressions;
     DELETE FROM push_subscriptions;
     DELETE FROM inbox_permissions;
     DELETE FROM sender_identities;

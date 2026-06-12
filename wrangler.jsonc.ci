@@ -31,21 +31,6 @@
   "observability": {
     "enabled": true
   },
-  "queues": {
-    "producers": [
-      {
-        "binding": "EMAIL_QUEUE",
-        "queue": "saasmail-sequence-emails"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "saasmail-sequence-emails",
-        "max_batch_size": 10,
-        "max_retries": 3
-      }
-    ]
-  },
   "triggers": {
     "crons": ["0 * * * *"]
   },
@@ -60,7 +45,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["NotificationsHub"]
+      "new_sqlite_classes": ["NotificationsHub"]
     }
   ],
   "vars": {

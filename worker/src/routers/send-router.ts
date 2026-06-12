@@ -17,6 +17,9 @@ import { generateMessageId } from "../lib/message-id";
 import { computeConversationId, externalsOnly } from "../lib/conversation-id";
 import { parseSendBody, sendParseErrorResponse } from "../lib/multipart-send";
 import { attachments } from "../db/attachments.schema";
+import { filterSuppressed } from "../lib/suppression";
+import { buildListUnsubscribeHeaders } from "../lib/list-unsubscribe";
+import { applyTracking } from "../lib/tracking";
 
 /**
  * Fetch the set of "internal" domains (domains owned by our
@@ -136,17 +139,45 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   assertInboxAllowed(allowed, fromAddress);
   const now = Math.floor(Date.now() / 1000);
 
+  // Compliance + deliverability gate: refuse to send to any address on
+  // the active suppression list. Returns the offending recipients so the
+  // caller can surface them in the UI.
+  const suppressionTargets = [to, ...(cc?.map((c) => c.email) ?? [])];
+  const suppressedHere = await filterSuppressed(db, suppressionTargets);
+  if (suppressedHere.size > 0) {
+    return c.json(
+      {
+        error: "suppressed_recipient",
+        suppressed: Array.from(suppressedHere),
+      },
+      403,
+    );
+  }
+
   const messageId = generateMessageId(fromAddress);
   const formattedFrom = await formatFromAddress(db, fromAddress);
+
+  // Pre-generate the sent_emails id so the unsubscribe + tracking
+  // tokens can reference this specific message. Re-used below at
+  // insert time.
+  const id = nanoid();
+  const listUnsubHeaders = await buildListUnsubscribeHeaders(c.env, {
+    email: to,
+    sentEmailId: id,
+  });
+  const trackedHtml = await applyTracking(c.env, bodyHtml, {
+    sentEmailId: id,
+    recipient: to,
+  });
 
   const result = await sender.send({
     from: formattedFrom,
     to,
     ...(cc && cc.length > 0 ? { cc: cc.map(formatCc) } : {}),
     subject,
-    html: bodyHtml,
+    html: trackedHtml,
     text: bodyText,
-    headers: { "Message-ID": messageId },
+    headers: { "Message-ID": messageId, ...listUnsubHeaders },
     ...(files.length > 0
       ? {
           attachments: files.map((f) => ({
@@ -198,7 +229,6 @@ sendRouter.openapi(sendEmailRoute, async (c) => {
   );
   const conversationId = await computeConversationId(fromAddress, externals);
 
-  const id = nanoid();
   await db.insert(sentEmails).values({
     id,
     personId,
@@ -343,6 +373,24 @@ sendRouter.openapi(replyEmailRoute, async (c) => {
     origSubject = orig.subject ?? null;
     origInReplyToMessageId = orig.messageId ?? null;
     toAddress = orig.toAddress.toLowerCase();
+  }
+
+  // Suppression check covers replies too — once a recipient lands on the
+  // suppression list (bounce, complaint, unsubscribe) further sends are
+  // blocked regardless of channel.
+  const suppressionTargetsReply = [
+    toAddress,
+    ...(cc?.map((c) => c.email) ?? []),
+  ];
+  const suppressedReply = await filterSuppressed(db, suppressionTargetsReply);
+  if (suppressedReply.size > 0) {
+    return c.json(
+      {
+        error: "suppressed_recipient",
+        suppressed: Array.from(suppressedReply),
+      },
+      403,
+    );
   }
 
   // Determine subject and body

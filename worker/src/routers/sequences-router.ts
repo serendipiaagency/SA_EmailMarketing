@@ -8,7 +8,8 @@ import { sequenceEmails } from "../db/sequence-emails.schema";
 import { emailTemplates } from "../db/email-templates.schema";
 import { people } from "../db/people.schema";
 import { json200Response, json201Response } from "../lib/helpers";
-import type { SequenceEmailMessage } from "../lib/sequence-processor";
+import { processSequenceEmail } from "../lib/sequence-processor";
+import { createEmailSender } from "../lib/email-sender";
 import type { Variables } from "../variables";
 import { isDemoMode } from "../lib/is-dev";
 
@@ -467,12 +468,27 @@ sequencesRouter.openapi(enrollRoute, async (c) => {
 
   await db.insert(sequenceEmails).values(scheduledEmails);
 
-  // Immediately queue the first email so it sends without waiting for cron.
-  // Skipped in demo mode where no EMAIL_QUEUE binding exists.
+  // Send the first email immediately (inline) so enrollment doesn't wait
+  // for the next cron tick. No Cloudflare Queues on this deployment, so we
+  // process synchronously. The row was inserted with status "queued"
+  // above, which is exactly what processSequenceEmail expects.
+  // Skipped in demo mode where nothing is dispatched.
   if (!isDemoMode(c.env)) {
     const firstEmail = scheduledEmails[0];
-    const message: SequenceEmailMessage = { sequenceEmailId: firstEmail.id };
-    await c.env.EMAIL_QUEUE.send(message);
+    const sender = createEmailSender(c.env);
+    try {
+      await processSequenceEmail(db, sender, c.env, firstEmail.id);
+    } catch (err) {
+      console.error(
+        `Failed to send first sequence email ${firstEmail.id}:`,
+        err,
+      );
+      // Reset to pending so the cron retries it.
+      await db
+        .update(sequenceEmails)
+        .set({ status: "pending" })
+        .where(eq(sequenceEmails.id, firstEmail.id));
+    }
   }
 
   return c.json(
